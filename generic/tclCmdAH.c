@@ -60,6 +60,7 @@ static int		StoreStatData(Tcl_Interp *interp, Tcl_Obj *varName,
 			    Tcl_StatBuf *statPtr);
 static inline int	EachloopCmd(Tcl_Interp *interp, int collect,
 			    int objc, Tcl_Obj *const objv[]);
+static Tcl_NRPostProc	CallObjCmdCallback;
 static Tcl_NRPostProc	CatchObjCmdCallback;
 static Tcl_NRPostProc	ExprCallback;
 static Tcl_NRPostProc	ForSetupCallback;
@@ -130,6 +131,308 @@ Tcl_BreakObjCmd(
 	return TCL_ERROR;
     }
     return TCL_BREAK;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * Tcl_CallObjCmd --
+ *
+ *	This procedure is invoked to process the "call" Tcl command. See the
+ *	user documentation for details on what it does.
+ *
+ * Results:
+ *	A standard Tcl object result.
+ *
+ * Side effects:
+ *	See the user documentation.
+ *
+ *----------------------------------------------------------------------
+ */
+
+	/* ARGSUSED */
+int
+Tcl_CallObjCmd(
+    ClientData dummy,		/* Not used. */
+    Tcl_Interp *interp,		/* Current interpreter. */
+    int objc,			/* Number of arguments. */
+    Tcl_Obj *const objv[])	/* Argument objects. */
+{
+    return Tcl_NRCallObjProc(interp, TclNRCallObjCmd, dummy, objc, objv);
+}
+
+int
+TclNRCallObjCmd(
+    ClientData dummy,		/* Not used. */
+    Tcl_Interp *interp,		/* Current interpreter. */
+    int objc,			/* Number of arguments. */
+    Tcl_Obj *const objv[])	/* Argument objects. */
+{
+    int result, i, j, idxOpt, idxCmd, idxArgs, optOpts, optNpos;
+    int nProcOpts, nOpts, nArgs, newObjc;
+    const char *cmdName, *name;
+    Command *cmdPtr;
+    Proc *procPtr;
+    Tcl_Obj **newObjv, **varNames;
+    Var *defPtr;
+
+    static const char *const options[] = {
+	"-opts", "-npos", "--", NULL
+    };
+    enum callOption {
+	CALL_OPTS, CALL_NPOS, CALL_LAST
+    };
+
+    optOpts = 0;
+    optNpos = 0;
+
+    for (i = 1; i < objc; i++) {
+	if (TclGetString(objv[i])[0] != '-') {
+	    break;
+	}
+
+	if (Tcl_GetIndexFromObj(interp, objv[i], options, "option",
+		0, &idxOpt) != TCL_OK) {
+	    return TCL_ERROR;
+	}
+
+	if (idxOpt == CALL_OPTS) {
+	    optOpts = 1;
+	}
+	else if (idxOpt == CALL_NPOS) {
+	    if (i == objc-1
+		    || Tcl_GetIntFromObj(NULL, objv[i+1], &optNpos) != TCL_OK
+		    || optNpos < 0) {
+		Tcl_SetObjResult(interp, Tcl_NewStringObj(
+			"wrong args: \"-npos\" must be followed by a "
+			"positive integer", -1));
+		Tcl_SetErrorCode(interp, "TCL", "ARGUMENT",
+			(i == objc-1) ? "MISSING" : "FORMAT", NULL);
+		return TCL_ERROR;
+	    }
+	    i++;
+	}
+	else if (idxOpt == CALL_LAST) {
+	    i++;
+	    break;
+	}
+    }
+
+    idxCmd = i;
+    if (idxCmd == objc) {
+	Tcl_WrongNumArgs(interp, 1, objv,
+		"?-opts? ?-npos pos? command ?args...?");
+	return TCL_ERROR;
+    }
+
+    /*
+     * If there are no argument-related options, directly call the command
+     * without searching it first.
+     *
+     * Non-proc commands are allowed in that case.
+     */
+
+    if (!optOpts && optNpos == 0) {
+	return TclNREvalObjv(interp, objc - idxCmd, objv + idxCmd, 0, NULL);
+    }
+
+    cmdName = TclGetString(objv[idxCmd]);
+    cmdPtr = (Command *)Tcl_FindCommand(interp, cmdName, NULL, 0);
+    if (cmdPtr == NULL) {
+	Tcl_SetObjResult(interp, Tcl_ObjPrintf(
+		"invalid command name \"%s\"", cmdName));
+	Tcl_SetErrorCode(interp, "TCL", "LOOKUP", "COMMAND", cmdName, NULL);
+	return TCL_ERROR;
+    }
+
+    procPtr = TclIsProc(cmdPtr);
+    if (procPtr == NULL) {
+	Tcl_SetObjResult(interp, Tcl_ObjPrintf(
+		"command name \"%s\" is not a procedure", cmdName));
+	Tcl_SetErrorCode(interp, "TCL", "LOOKUP", "PROCEDURE", cmdName, NULL);
+	return TCL_ERROR;
+    }
+
+    if (objc - idxCmd <= optNpos) {
+	Tcl_SetObjResult(interp, Tcl_ObjPrintf(
+		"not enough starting positional parameters "
+		"(-npos %d was used)", optNpos));
+	Tcl_SetErrorCode(interp, "TCL", "ARGUMENT", "MISSING", NULL);
+	return TCL_ERROR;
+    }
+
+    result = TclProcGetCachedArgs(interp, procPtr, cmdName, &varNames,
+	&defPtr);
+    if (result != TCL_OK) {
+	return result;
+    }
+
+    /*
+     * Count the number of optional arguments (nProcOpts) *after* the starting
+     * positional arguments (npos).
+     */
+
+    for (i = optNpos, nProcOpts = 0; i < procPtr->numArgs; i++) {
+	if (defPtr[i].value.objPtr != NULL) {
+	    nProcOpts++;
+	}
+    }
+
+    /*
+     * Count the number of options (nOpts) specified after the starting
+     * positional arguments (npos). idxArgs will then be set to the first
+     * argument after the options list.
+     */
+
+    for (i = idxCmd + optNpos + 1, nOpts=0; i < objc; i++) {
+	name = TclGetString(objv[i]);
+	if (name[0] != '-') {
+	    break;
+	}
+
+	if (strcmp(name, "--") == 0) {
+	    i++;
+	    break;
+	}
+
+	if (++i == objc) {
+	    Tcl_SetObjResult(interp, Tcl_ObjPrintf(
+		    "missing value after option \"%s\"", name));
+	    Tcl_SetErrorCode(interp, "TCL", "ARGUMENT", "MISSING",
+		    name, NULL);
+	    return TCL_ERROR;
+	}
+
+	nOpts++;
+    }
+
+    idxArgs = i;
+    nArgs = objc - idxArgs;
+
+    /*
+     * Allocate new objects array (newObjv) of size newObjc to store
+     * the new command line.
+     *
+     * The minimal value for newObjc is 1(command) + numArgs but can be
+     * higher to handle the 'args' special argument.
+     */
+
+    newObjc = 1 + optNpos + nProcOpts + nArgs;
+    if (newObjc < procPtr->numArgs + 1) {
+	newObjc = procPtr->numArgs + 1;
+    }
+
+    newObjv = TclStackAlloc(interp, (int) sizeof(Tcl_Obj *) * newObjc);
+    memset(newObjv, 0, sizeof(Tcl_Obj *) * newObjc);
+
+    Tcl_NRAddCallback(interp, CallObjCmdCallback, INT2PTR(newObjc),
+	    newObjv, NULL, NULL);
+
+    /* Set command name and starting positional arguments */
+    for (i = 0; i <= optNpos; i++) {
+	newObjv[i] = objv[idxCmd + i];
+	Tcl_IncrRefCount(newObjv[i]);
+    }
+
+    /* Store other arguments in remaining *non-optional* arguments. */
+    for (i = idxArgs, j = optNpos; i < objc; i++) {
+	while (j < procPtr->numArgs && defPtr[j].value.objPtr != NULL) {
+	    j++;
+	}
+
+	newObjv[++j] = objv[i];
+	Tcl_IncrRefCount(newObjv[j]);
+    }
+
+    /* Handle options to fill optional arguments */
+    for (i = idxCmd + 1 + optNpos; i < idxCmd + 1 + optNpos + nOpts * 2; i+=2) {
+	name = TclGetString(objv[i]) + 1;
+
+	for (j = 0; j < procPtr->numArgs; j++) {
+	    if (strcmp(name, TclGetString(varNames[j])) == 0) {
+		break;
+	    }
+	}
+
+	if (j == procPtr->numArgs) {
+	    Tcl_SetObjResult(interp, Tcl_ObjPrintf(
+		    "unknown argument \"%s\" in \"%s\"", name, cmdName));
+	    Tcl_SetErrorCode(interp, "TCL", "LOOKUP", "ARGUMENT",
+		    name, NULL);
+	    return TCL_ERROR;
+	}
+	else if (defPtr[j].value.objPtr == NULL) {
+	    Tcl_SetObjResult(interp, Tcl_ObjPrintf(
+		    "argument \"%s\" is not optional (no default value)",
+		    name));
+	    Tcl_SetErrorCode(interp, "TCL", "CALL", "NON_OPTIONAL",
+		    name, NULL);
+	    return TCL_ERROR;
+	}
+	else if (newObjv[j+1] != NULL) {
+	    Tcl_SetObjResult(interp, Tcl_ObjPrintf(
+		    "argument \"%s\" is set more than once", name));
+	    Tcl_SetErrorCode(interp, "TCL", "CALL", "SET_TWICE",
+		    name, NULL);
+	    return TCL_ERROR;
+	}
+	else {
+	    newObjv[j+1] = objv[i+1];
+	    Tcl_IncrRefCount(newObjv[j+1]);
+	}
+    }
+
+    /*
+     * Check remaining unset arguments.
+     *
+     * - For optional arguments, set the expected default value;
+     *
+     * - For non optional arguments, reduce newObjc to the last set
+     *   argument. The reduced list will be sent to the target procedure
+     *   which will generate a related WrongNumArgs error.
+     */
+    for (i = 0; i < newObjc; i++) {
+	if (newObjv[i] != NULL) {
+	    continue;
+	}
+
+	if (i > 0 && i <= procPtr->numArgs
+		&& defPtr[i-1].value.objPtr != NULL) {
+	    newObjv[i] = defPtr[i-1].value.objPtr;
+	    Tcl_IncrRefCount(newObjv[i]);
+	}
+	else {
+	    newObjc = i;
+	    break;
+	}
+    }
+
+    return TclNREvalObjv(interp, newObjc, newObjv, 0, cmdPtr);
+}
+
+static int
+CallObjCmdCallback(
+    ClientData data[],
+    Tcl_Interp *interp,
+    int result)
+{
+    int i, objc = PTR2INT(data[0]);
+    Tcl_Obj **objv = data[1];
+
+    /*
+     * Release allocated array and included objects. As objc is the initial
+     * size of the array (before potential reduction), objv may contain
+     * NULL objects.
+     */
+
+    for (i = 0; i < objc; ++i) {
+	if (objv[i]) {
+	    Tcl_DecrRefCount(objv[i]);
+	}
+    }
+
+    TclStackFree(interp, objv);
+    return result;
 }
 
 /*

@@ -1372,6 +1372,60 @@ InitLocalCache(
 /*
  *----------------------------------------------------------------------
  *
+ * TclProcGetCachedArgs --
+ *
+ *	This routine is invoked in order to get access to the variable names
+ *	and default values present in the local cache.
+ *
+ * Results:
+ *	A standard Tcl result.
+ *
+ * Side effects:
+ *	The proc's body may be compiled and the localCachePtr may be
+ *	initialized during the call.
+ *
+ *----------------------------------------------------------------------
+ */
+
+int
+TclProcGetCachedArgs(
+    Tcl_Interp *interp,
+    Proc *procPtr,
+    const char *procName,
+    Tcl_Obj ***names,
+    Var **defaults)
+{
+    ByteCode *codePtr;
+    int result;
+
+    if (!procPtr->numCompiledLocals) {
+	*names = NULL;
+	*defaults = NULL;
+	return TCL_OK;
+    }
+
+    if (procPtr->bodyPtr->typePtr != &tclByteCodeType) {
+	result = TclProcCompileProc(interp, procPtr, procPtr->bodyPtr,
+		procPtr->cmdPtr->nsPtr, "body of proc", procName);
+	if (result != TCL_OK) {
+	    return result;
+	}
+    }
+
+    codePtr = procPtr->bodyPtr->internalRep.twoPtrValue.ptr1;
+    if (!codePtr->localCachePtr) {
+	InitLocalCache(procPtr);
+    }
+
+    *names = &codePtr->localCachePtr->varName0;
+    *defaults = (Var *) (*names + procPtr->numCompiledLocals);
+
+    return TCL_OK;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
  * InitArgsAndLocals --
  *
  *	This routine is invoked in order to initialize the arguments and other

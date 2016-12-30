@@ -1077,6 +1077,9 @@ typedef struct LocalCache {
 
 MODULE_SCOPE void	TclFreeLocalCache(Tcl_Interp *interp,
 			    LocalCache *localCachePtr);
+MODULE_SCOPE int	TclProcGetCachedArgs(Tcl_Interp *interp,
+			    Proc *procPtr, const char *procName,
+			    Tcl_Obj ***names, Var **defaults);
 
 typedef struct CallFrame {
     Namespace *nsPtr;		/* Points to the namespace used to resolve
@@ -2757,6 +2760,7 @@ MODULE_SCOPE char	tclEmptyString;
 
 MODULE_SCOPE Tcl_ObjCmdProc TclNRApplyObjCmd;
 MODULE_SCOPE Tcl_ObjCmdProc TclNREvalObjCmd;
+MODULE_SCOPE Tcl_ObjCmdProc TclNRCallObjCmd;
 MODULE_SCOPE Tcl_ObjCmdProc TclNRCatchObjCmd;
 MODULE_SCOPE Tcl_ObjCmdProc TclNRExprObjCmd;
 MODULE_SCOPE Tcl_ObjCmdProc TclNRForObjCmd;
@@ -3211,6 +3215,9 @@ MODULE_SCOPE int	Tcl_ApplyObjCmd(ClientData clientData,
 MODULE_SCOPE Tcl_Command TclInitArrayCmd(Tcl_Interp *interp);
 MODULE_SCOPE Tcl_Command TclInitBinaryCmd(Tcl_Interp *interp);
 MODULE_SCOPE int	Tcl_BreakObjCmd(ClientData clientData,
+			    Tcl_Interp *interp, int objc,
+			    Tcl_Obj *const objv[]);
+MODULE_SCOPE int	Tcl_CallObjCmd(ClientData clientData,
 			    Tcl_Interp *interp, int objc,
 			    Tcl_Obj *const objv[]);
 MODULE_SCOPE int	Tcl_CaseObjCmd(ClientData clientData,

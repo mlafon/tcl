@@ -1,0 +1,116 @@
+# Commands covered:  call
+#
+# This file contains a collection of tests for one or more of the Tcl
+# built-in commands.  Sourcing this file into Tcl runs the tests and
+# generates output for errors.  No output means no errors were found.
+#
+# Copyright (c) 1991-1994 The Regents of the University of California.
+# Copyright (c) 1994-1997 Sun Microsystems, Inc.
+#
+# See the file "license.terms" for information on usage and redistribution
+# of this file, and for a DISCLAIMER OF ALL WARRANTIES.
+
+if {[lsearch [namespace children] ::tcltest] == -1} {
+    package require tcltest
+    namespace import -force ::tcltest::*
+}
+
+proc p1 {} {}
+proc p2 {a {b B}} { list $a $b }
+proc p3 {a {b B} args} { list $a $b $args }
+proc p4 {a {b B} {c C} {d D} args} { list $a $b $c $d $args }
+
+# invalid usage of call command
+test call-1.1 {no arguments provided} {
+    list [catch call msg] $msg $errorCode
+} {1 {wrong # args: should be "call ?-opts? ?-npos pos? command ?args...?"} {TCL WRONGARGS}}
+test call-1.2 {unknown option provided} {
+    list [catch {call -foo} msg] $msg $errorCode
+} {1 {bad option "-foo": must be -opts, -npos, or --} {TCL LOOKUP INDEX option -foo}}
+test call-1.3 {no argument provided with -npos} {
+    list [catch {call -npos} msg] $msg $errorCode
+} {1 {wrong args: "-npos" must be followed by a positive integer} {TCL ARGUMENT MISSING}}
+test call-1.4 {non-integer argument provided with -npos} {
+    list [catch {call -npos A} msg] $msg $errorCode
+} {1 {wrong args: "-npos" must be followed by a positive integer} {TCL ARGUMENT FORMAT}}
+test call-1.5 {negative-integer argument provided with -npos} {
+    list [catch {call -npos -2} msg] $msg $errorCode
+} {1 {wrong args: "-npos" must be followed by a positive integer} {TCL ARGUMENT FORMAT}}
+test call-1.6 {-npos used without enough positional arguments} {
+    list [catch {call -npos 1 p1} msg] $msg $errorCode
+} {1 {not enough starting positional parameters (-npos 1 was used)} {TCL ARGUMENT MISSING}}
+test call-1.7 {duplicate options, specified two times} {
+    list [catch {call -opts p2 -b B2 -b B1 A} msg] $msg $errorCode
+} {1 {argument "b" is set more than once} {TCL CALL SET_TWICE b}}
+test call-1.8 {duplicate options, specified as positional and as option} {
+    list [catch {call -opts -npos 2 p2 A B1 -b B2} msg] $msg $errorCode
+} {1 {argument "b" is set more than once} {TCL CALL SET_TWICE b}}
+test call-1.9 {not enough arguments provided} {
+    list [catch {call -opts p2 -b B} msg] $msg $errorCode
+} {1 {wrong # args: should be "p2 a ?b?"} {TCL WRONGARGS}}
+test call-1.10 {unknown command} {
+    list [catch {call -opts foo} msg] $msg $errorCode
+} {1 {invalid command name "foo"} {TCL LOOKUP COMMAND foo}}
+test call-1.11 {non-procedure command called with (-opts or -npos)} {
+    list [catch {call -opts list 0} msg] $msg $errorCode
+} {1 {command name "list" is not a procedure} {TCL LOOKUP PROCEDURE list}}
+test call-1.12 {non-default arg specified as option} {
+    list [catch {call -opts p2 -a A} msg] $msg $errorCode
+} {1 {argument "a" is not optional (no default value)} {TCL CALL NON_OPTIONAL a}}
+test call-1.13 {unknown option specified} {
+    list [catch {call -opts p2 -d D A} msg] $msg $errorCode
+} {1 {unknown argument "d" in "p2"} {TCL LOOKUP ARGUMENT d}}
+test call-1.14 {not enough arguments} {
+    list [catch {call -opts p3 -b BB} msg] $msg $errorCode
+} {1 {wrong # args: should be "p3 a ?b? ?arg ...?"} {TCL WRONGARGS}}
+test call-1.15 {too many arguments} {
+    list [catch {call -opts p2 -b BB x y z} msg] $msg $errorCode
+} {1 {wrong # args: should be "p2 a ?b?"} {TCL WRONGARGS}}
+test call-1.16 {unknown option with proc without any args} {
+    list [catch {call -opts p1 -b B} msg] $msg $errorCode
+} {1 {unknown argument "b" in "p1"} {TCL LOOKUP ARGUMENT b}}
+test call-1.17 {arguments specified with proc without any args} {
+    list [catch {call -opts p1 x} msg] $msg $errorCode
+} {1 {wrong # args: should be "p1"} {TCL WRONGARGS}}
+test call-1.18 {option without value} {
+    list [catch {call -opts p2 -b} msg] $msg $errorCode
+} {1 {missing value after option "-b"} {TCL ARGUMENT MISSING -b}}
+
+# valid usage of call command
+test call-2.1 {simple call, no options} {
+    call p2 A
+} {A B}
+test call-2.2 {simple call, no options, non-proc} {
+    call list A B C
+} {A B C}
+test call-2.3 {simple call, -opts, none provided} {
+    call -opts p2 A
+} {A B}
+test call-2.4 {simple call, -opts, one provided} {
+    call -opts p2 -b BB A
+} {A BB}
+test call-2.5 {simple call, -opts, two provided, unordered} {
+    call -opts p4 -d DD -b BB A x y
+} {A BB C DD {x y}}
+test call-2.6 {simple call, -b (after --) is not an option} {
+    call -opts p3 -- -b opt
+} {-b B opt}
+test call-2.7 {call using dictionary for options} {
+    dict set opts -d _d
+    dict set opts -b .b
+    call -opts p4 {*}$opts a
+} {a .b C _d {}}
+test call-2.8 {call using list for options} {
+    lappend lopts -c 2
+    lappend lopts -b 1
+    lappend lopts -d 3
+    call -opts p4 {*}$lopts 0
+} {0 1 2 3 {}}
+
+# cleanup
+::tcltest::cleanupTests
+return
+
+# Local Variables:
+# mode: tcl
+# End:
