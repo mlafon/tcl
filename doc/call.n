@@ -17,10 +17,70 @@ call \- Call commands
 
 .SH DESCRIPTION
 .PP
-In progress...
+The \fBcall\fR command provides a solution to call an other command
+in a specific way. \fIcommand\fR is the command name to call and
+\fR?\fIargs ...\fR? are the arguments for this command. Depending on
+the specified options for the \fBcall\fR command, the arguments list
+can be modified before being transmitted to the command.
+.PP
+The \fBcall\fR command currently support two options:
+.TP
+\fB-opts\fR
+.
+The \fB-opts\fR option allows specifying optional arguments (arguments
+with default values) with an \fI-option value\fR syntax. This option
+can only be used with a Tcl-pure procedure. The \fI-option value\fR
+list starts after the command name and after any positional arguments
+if the \fI-npos pos\fR option has been used (\fIsee below\fR). It ends
+at the first argument not starting with a dash or when the \fB--\fR
+keyword is encountered. Each argument can only be specified once and
+any optional arguments not specified is replaced with its default value.
+Remaining arguments will be affected to remaining positional arguments
+without defaults.
+.TP
+\fB-npos pos\fR
+.
+The \fB-npos pos\fR option allows specifying a number of positional
+arguments directly specified after the command name. This option
+can only be used with a Tcl-pure procedure. The \fIpos\fR arguments
+following the command name are directly affected to the \fIpos\fR
+first arguments of the command. If the \fB-opts\fR option has been
+used, it is followed by the \fI-option value\fR list (\fIsee above\fR).
+Remaining arguments will be affected to remaining positional arguments
+without defaults, arguments with default values will be replaced with
+their default values.
 .SH EXAMPLE
 .PP
-In progress...
+This example shows the usage of the \fB-opts\fR option to only specify
+a subset of arguments with default (named-parameters).
+.PP
+.CS
+proc myproc { a { b B } { c C } args } {
+  ...
+}
+\fBcall\fR -opts myproc -c valC A xyz
+.CE
+.PP
+This example shows the usage of the \fB-opts\fR and \fB-npos pos\fR
+options.
+.PP
+.CS
+proc myproc { a { b B } { c C } args } {
+  ...
+}
+\fBcall\fR -npos 1 -opts myproc A -c valC
+.CE
+.PP
+This example shows how to use a dictionary to specify named-parameters
+with the \fB-opts\fR option.
+.PP
+.CS
+proc myproc { a { b B } { c C } args } {
+  ...
+}
+dict set myargs -b "valB B"
+dict set myargs -c C2
+\fBcall\fR -opts myproc {*}$myargs -- A
 .CE
 .SH "SEE ALSO"
 proc(n)

@@ -285,6 +285,10 @@ TclNRCallObjCmd(
      */
 
     for (i = idxCmd + optNpos + 1, nOpts=0; i < objc; i++) {
+	if (!optOpts) {
+	    break;
+	}
+
 	name = TclGetString(objv[i]);
 	if (name[0] != '-') {
 	    break;

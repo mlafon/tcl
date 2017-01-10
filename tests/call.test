@@ -95,12 +95,22 @@ test call-2.5 {simple call, -opts, two provided, unordered} {
 test call-2.6 {simple call, -b (after --) is not an option} {
     call -opts p3 -- -b opt
 } {-b B opt}
-test call-2.7 {call using dictionary for options} {
+test call-2.7 {simple call, -npos} {
+    call -npos 1 p3 A C
+} {A B C}
+test call-2.8 {simple call, -npos and -opts} {
+    call -npos 2 -opts p4 a b -d DD x
+} {a b C DD x}
+test call-2.9 {simple call, -npos, no -opts, -- used as an argument} {
+    call -npos 1 p3 A -- C
+} {A B {-- C}}
+# advanced call
+test call-3.0 {advanced call using dictionary for options} {
     dict set opts -d _d
     dict set opts -b .b
     call -opts p4 {*}$opts a
 } {a .b C _d {}}
-test call-2.8 {call using list for options} {
+test call-3.1 {advanced call using list for options} {
     lappend lopts -c 2
     lappend lopts -b 1
     lappend lopts -d 3
